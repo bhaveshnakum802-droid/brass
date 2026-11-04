@@ -5,6 +5,7 @@ import fs from 'fs';
 import { Request, Response, NextFunction } from 'express';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE || '5242880', 10);
 
 function ensureDir(dir: string): void {
@@ -13,13 +14,16 @@ function ensureDir(dir: string): void {
 
 const storage = multer.diskStorage({
   destination: (req: Request & { uploadSubfolder?: string }, _file, cb) => {
-    const subfolder = req.uploadSubfolder || 'general';
-    const dir = path.join(process.cwd(), 'uploads', subfolder);
+    const rawSubfolder = req.uploadSubfolder || 'general';
+    // Sanitize subfolder name to prevent path traversal
+    const safeSubfolder = rawSubfolder.replace(/[^a-zA-Z0-9_-]/g, '');
+    const dir = path.join(process.cwd(), 'uploads', safeSubfolder);
     ensureDir(dir);
     cb(null, dir);
   },
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+    const rawExt = path.extname(file.originalname).toLowerCase();
+    const ext = ALLOWED_EXTENSIONS.includes(rawExt) ? rawExt : '.jpg';
     cb(null, `${uuidv4()}${ext}`);
   },
 });
@@ -29,9 +33,15 @@ const fileFilter = (
   file: Express.Multer.File,
   cb: multer.FileFilterCallback
 ) => {
-  ALLOWED_MIME_TYPES.includes(file.mimetype)
-    ? cb(null, true)
-    : cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.'));
+  const ext = path.extname(file.originalname).toLowerCase();
+  const isMimeAllowed = ALLOWED_MIME_TYPES.includes(file.mimetype);
+  const isExtAllowed = ALLOWED_EXTENSIONS.includes(ext);
+
+  if (isMimeAllowed && isExtAllowed) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and GIF images are allowed.'));
+  }
 };
 
 export const upload = multer({ storage, fileFilter, limits: { fileSize: MAX_FILE_SIZE, files: 10 } });
@@ -45,7 +55,9 @@ export function setUploadSubfolder(subfolder: string) {
 
 export function deleteUploadedFile(urlPath: string): void {
   const relativePath = urlPath.replace('/api/uploads/', '');
-  const fullPath = path.join(process.cwd(), 'uploads', relativePath);
+  // Sanitize path to prevent directory traversal
+  const safePath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+  const fullPath = path.join(process.cwd(), 'uploads', safePath);
   if (fs.existsSync(fullPath)) {
     try { fs.unlinkSync(fullPath); } catch { /* ignore */ }
   }

@@ -1,20 +1,11 @@
 import { Request, Response } from 'express';
-import nodemailer from 'nodemailer';
 import { prisma } from '../utils/prisma';
+import { transporter, hasSmtpConfigured, getDefaultSenderEmail } from '../utils/email';
 import { successResponse, errorResponse } from '../utils/response';
-
-// Re-use same transporter settings
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'testingfordemo2647@gmail.com',
-    pass: 'nxmgkltnxocqfczz',
-  },
-});
 
 async function sendInquiryEmail(toEmail: string, mailOptions: any): Promise<void> {
   const resendApiKey = process.env.RESEND_API_KEY;
-  const emailFrom = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+  const emailFrom = getDefaultSenderEmail();
 
   if (resendApiKey) {
     console.log(`📡 Sending Inquiry email via Resend API to ${toEmail}...`);
@@ -39,12 +30,14 @@ async function sendInquiryEmail(toEmail: string, mailOptions: any): Promise<void
     return;
   }
 
-  // Fallback to Nodemailer SMTP
-  const nodemailerOptions = {
-    ...mailOptions,
-    from: `"Chetan Brass RFQ Portal" <${emailFrom.includes('@') ? emailFrom : 'testingfordemo2647@gmail.com'}>`,
-  };
-  await transporter.sendMail(nodemailerOptions);
+  // Fallback to Nodemailer SMTP if configured
+  if (hasSmtpConfigured()) {
+    const nodemailerOptions = {
+      ...mailOptions,
+      from: `"Chetan Brass RFQ Portal" <${emailFrom}>`,
+    };
+    await transporter.sendMail(nodemailerOptions);
+  }
 }
 
 export async function submitInquiryForm(req: Request, res: Response): Promise<void> {
@@ -56,18 +49,49 @@ export async function submitInquiryForm(req: Request, res: Response): Promise<vo
       return;
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (typeof email !== 'string' || !emailRegex.test(email.trim()) || email.length > 255) {
+      errorResponse(res, 'Please provide a valid email address', 400);
+      return;
+    }
+
+    if (typeof name !== 'string' || name.trim().length > 100) {
+      errorResponse(res, 'Name must be 100 characters or less', 400);
+      return;
+    }
+
+    if (typeof phone !== 'string' || phone.trim().length > 35) {
+      errorResponse(res, 'Phone number is too long', 400);
+      return;
+    }
+
+    if (typeof requirements !== 'string' || requirements.trim().length > 5000) {
+      errorResponse(res, 'Requirements must be 5000 characters or less', 400);
+      return;
+    }
+
+    if (company && (typeof company !== 'string' || company.length > 150)) {
+      errorResponse(res, 'Company name is too long', 400);
+      return;
+    }
+
+    if (quantity && (typeof quantity !== 'string' || quantity.length > 50)) {
+      errorResponse(res, 'Quantity format is too long', 400);
+      return;
+    }
+
     // Resolve product name from database
     let productName = 'General inquiry / Choose a Product';
     if (productId && productId !== 'general') {
       const product = await prisma.product.findUnique({
-        where: { id: productId },
+        where: { id: String(productId) },
       });
       if (product) {
         productName = `${product.name} (SKU: ${product.sku || 'N/A'})`;
       } else {
         // Fallback check if it was sent as a slug
         const productBySlug = await prisma.product.findUnique({
-          where: { slug: productId },
+          where: { slug: String(productId) },
         });
         if (productBySlug) {
           productName = `${productBySlug.name} (SKU: ${productBySlug.sku || 'N/A'})`;
@@ -84,23 +108,23 @@ export async function submitInquiryForm(req: Request, res: Response): Promise<vo
       },
       body: JSON.stringify({
         _subject: `New RFQ Inquiry: ${productName}`,
-        name,
-        company: company || 'Not provided',
-        email,
-        phone,
+        name: name.trim(),
+        company: company ? company.trim() : 'Not provided',
+        email: email.trim(),
+        phone: phone.trim(),
         product: productName,
-        quantity: quantity || 'Not specified',
-        requirements,
+        quantity: quantity ? quantity.trim() : 'Not specified',
+        requirements: requirements.trim(),
       }),
     })
       .then((response: any) => {
         if (response.ok) {
-          console.log('✉️ Formspree RFQ inquiry email sent successfully');
+          console.log('✉️ Formspree RFQ inquiry email forwarded successfully');
         } else {
-          console.error('❌ Formspree failed to send RFQ inquiry email');
+          console.error('❌ Formspree failed to forward RFQ inquiry email');
         }
       })
-      .catch((err: any) => console.error('❌ Failed to forward to Formspree:', err));
+      .catch((err: any) => console.error('❌ Failed to forward to Formspree:', err.message || err));
 
     successResponse(res, null, 'Inquiry sent successfully');
   } catch (error) {

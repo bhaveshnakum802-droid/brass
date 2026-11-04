@@ -30,7 +30,7 @@ app.use(
     origin: (origin, callback) => {
       const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
       const isLocalhost = origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-      const isVercel = origin && /^https?:\/\/([a-zA-Z0-9-]+\.)*vercel\.app$/.test(origin);
+      const isVercel = origin && /^https?:\/\/(chetan-brass|chetan-brass-[a-zA-Z0-9-]+)\.vercel\.app$/.test(origin);
 
       if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin) || (isDevelopment && isLocalhost) || isVercel) {
         callback(null, true);

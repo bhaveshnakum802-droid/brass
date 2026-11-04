@@ -12,6 +12,10 @@ export function errorHandler(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction
 ): void {
-  console.error('Unhandled error:', err.message);
-  errorResponse(res, err.message || 'Internal server error', 500);
+  console.error('Unhandled server error:', err.message);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const clientMessage = isProduction 
+    ? 'An unexpected error occurred. Please try again later.' 
+    : (err.message || 'Internal server error');
+  errorResponse(res, clientMessage, 500);
 }
