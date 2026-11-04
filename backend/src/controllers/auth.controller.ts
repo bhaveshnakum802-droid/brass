@@ -12,7 +12,7 @@ const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: (process.env.NODE_ENV === 'production' ? 'none' : 'lax') as 'none' | 'lax',
-  maxAge: 1 * 60 * 60 * 1000, // 1 hour session timeout
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days (matches JWT_REFRESH_EXPIRES default)
   path: '/',
 };
 
@@ -21,7 +21,7 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
   const emailFrom = getDefaultSenderEmail();
 
   if (resendApiKey) {
-    console.log(`📡 Sending OTP email via Resend API to ${toEmail}...`);
+    console.log(`📡 [Email] Dispatching OTP email via Resend...`);
     const response = await (globalThis as any).fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -49,6 +49,7 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
       const errText = await response.text();
       throw new Error(`Resend API failed: ${response.statusText} - ${errText}`);
     }
+    console.log(`✉️ [Email] OTP dispatched via Resend successfully`);
     return;
   }
 
@@ -71,6 +72,7 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
       `,
     };
     await transporter.sendMail(mailOptions);
+    console.log(`✉️ [Email] OTP dispatched via SMTP successfully`);
   } else {
     throw new Error('No email provider configured. Please configure RESEND_API_KEY or SMTP_USER/SMTP_PASS.');
   }
@@ -91,7 +93,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const otp = randomInt(100000, 1000000).toString();
     const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    // Store bcrypt-hashed OTP in database so plain-text OTP is never stored
+    // Store bcrypt-hashed OTP in database
     const salt = await bcrypt.genSalt(10);
     const hashedOtp = await bcrypt.hash(otp, salt);
 
@@ -100,18 +102,15 @@ export async function login(req: Request, res: Response): Promise<void> {
       data: { otpCode: hashedOtp, otpExpiresAt },
     });
 
-    console.log(`🔑 [MFA] 2FA OTP code generated for user "${admin.username}"`);
+    console.log(`🔑 [MFA] 2FA OTP generated for user "${admin.username}"`);
 
-    // Send email asynchronously
+    // Send OTP email asynchronously — do not block HTTP response
     sendOtpEmail(otp, admin.email, 'Your 2FA Login OTP Code')
-      .then(() => {
-        console.log(`✉️ OTP email sent successfully to ${admin.email}`);
-      })
       .catch((emailError) => {
-        console.error('⚠️ Failed to send OTP email:', emailError.message || emailError);
+        console.error('⚠️ [Email] Failed to dispatch OTP email:', emailError.message || emailError);
       });
 
-    // Generate a temporary JWT token for 2FA verification
+    // Generate a short-lived MFA session token
     const ACCESS_SECRET = getAccessSecret();
     const mfaToken = jwt.sign(
       { id: admin.id, username: admin.username, role: admin.role, purpose: 'mfa' },
@@ -119,10 +118,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       { expiresIn: '5m' }
     );
 
-    successResponse(res, {
-      mfaRequired: true,
-      mfaToken,
-    }, 'OTP sent to registered email');
+    successResponse(res, { mfaRequired: true, mfaToken }, 'OTP sent to registered email');
   } catch (error) {
     console.error('Login error:', error);
     errorResponse(res, 'Login failed', 500);
@@ -139,8 +135,7 @@ export async function verifyOtp(req: Request, res: Response): Promise<void> {
 
     let decoded: any;
     try {
-      const ACCESS_SECRET = getAccessSecret();
-      decoded = jwt.verify(mfaToken, ACCESS_SECRET);
+      decoded = jwt.verify(mfaToken, getAccessSecret());
     } catch {
       errorResponse(res, 'MFA session has expired or is invalid. Please log in again.', 401);
       return;
@@ -161,32 +156,46 @@ export async function verifyOtp(req: Request, res: Response): Promise<void> {
     }
 
     const isExpired = !admin.otpExpiresAt || new Date() > admin.otpExpiresAt;
-    const isOtpValid = !isExpired && admin.otpCode ? await bcrypt.compare(String(otp).trim(), admin.otpCode) : false;
+    const isOtpValid = !isExpired && admin.otpCode
+      ? await bcrypt.compare(String(otp).trim(), admin.otpCode)
+      : false;
 
     if (!isOtpValid) {
       errorResponse(res, 'Invalid or expired OTP', 401);
       return;
     }
 
-    // OTP is correct! Clear OTP fields and update login time
+    const payload = { id: admin.id, username: admin.username, role: admin.role };
+    const accessToken = signAccessToken(payload);
+    const refreshToken = signRefreshToken(payload);
+
+    // Store bcrypt hash of refresh token in DB for server-side revocation
+    const rtSalt = await bcrypt.genSalt(10);
+    const refreshTokenHash = await bcrypt.hash(refreshToken, rtSalt);
+
+    // Clear OTP, update last login, store refresh token hash
     await prisma.adminUser.update({
       where: { id: admin.id },
       data: {
         otpCode: null,
         otpExpiresAt: null,
         lastLoginAt: new Date(),
+        refreshTokenHash,
       },
     });
-
-    const payload = { id: admin.id, username: admin.username, role: admin.role };
-    const accessToken = signAccessToken(payload);
-    const refreshToken = signRefreshToken(payload);
 
     res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
     successResponse(res, {
       accessToken,
       refreshToken,
-      user: { id: admin.id, username: admin.username, email: admin.email, firstName: admin.firstName, lastName: admin.lastName, role: admin.role },
+      user: {
+        id: admin.id,
+        username: admin.username,
+        email: admin.email,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        role: admin.role,
+      },
     }, 'Login successful');
   } catch (error) {
     console.error('OTP verification error:', error);
@@ -194,7 +203,24 @@ export async function verifyOtp(req: Request, res: Response): Promise<void> {
   }
 }
 
-export function logout(_req: Request, res: Response): void {
+export async function logout(req: Request, res: Response): Promise<void> {
+  try {
+    // Revoke refresh token server-side
+    const token = req.cookies?.refreshToken || req.body?.refreshToken;
+    if (token) {
+      try {
+        const payload = verifyRefreshToken(token);
+        await prisma.adminUser.updateMany({
+          where: { id: payload.id },
+          data: { refreshTokenHash: null },
+        });
+      } catch {
+        // Token already invalid — still clear it
+      }
+    }
+  } catch {
+    // Swallow errors — logout should always succeed from client perspective
+  }
   res.clearCookie('refreshToken', { ...COOKIE_OPTIONS, maxAge: 0 });
   successResponse(res, null, 'Logged out successfully');
 }
@@ -203,12 +229,35 @@ export async function refreshToken(req: Request, res: Response): Promise<void> {
   try {
     const token = req.cookies?.refreshToken || req.body?.refreshToken;
     if (!token) { errorResponse(res, 'Refresh token not found', 401); return; }
+
     const payload = verifyRefreshToken(token);
-    const admin = await prisma.adminUser.findFirst({ where: { id: payload.id, isActive: true } });
+
+    const admin = await prisma.adminUser.findFirst({
+      where: { id: payload.id, isActive: true },
+      select: { id: true, username: true, email: true, firstName: true, lastName: true, role: true, refreshTokenHash: true },
+    });
+
     if (!admin) { errorResponse(res, 'User not found', 401); return; }
+
+    // Verify that this refresh token is the one we issued (revocation check)
+    if (!admin.refreshTokenHash || !(await bcrypt.compare(token, admin.refreshTokenHash))) {
+      res.clearCookie('refreshToken');
+      errorResponse(res, 'Refresh token has been revoked. Please log in again.', 401);
+      return;
+    }
+
     const newPayload = { id: admin.id, username: admin.username, role: admin.role };
     const newAccessToken = signAccessToken(newPayload);
     const newRefreshToken = signRefreshToken(newPayload);
+
+    // Rotate: store new refresh token hash, invalidate old one
+    const rtSalt = await bcrypt.genSalt(10);
+    const newRefreshTokenHash = await bcrypt.hash(newRefreshToken, rtSalt);
+    await prisma.adminUser.update({
+      where: { id: admin.id },
+      data: { refreshTokenHash: newRefreshTokenHash },
+    });
+
     res.cookie('refreshToken', newRefreshToken, COOKIE_OPTIONS);
     successResponse(res, { accessToken: newAccessToken, refreshToken: newRefreshToken }, 'Token refreshed');
   } catch {
@@ -244,24 +293,21 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
 
     const ACCESS_SECRET = getAccessSecret();
 
-    // Prevent user enumeration: Return uniform response even if user doesn't exist
+    // Prevent user enumeration: always return the same response shape
     if (!admin) {
       const dummyToken = jwt.sign(
         { id: 'unknown_account', username, purpose: 'reset' },
         ACCESS_SECRET,
         { expiresIn: '5m' }
       );
-      successResponse(res, {
-        resetToken: dummyToken,
-      }, 'If an account matches those details, an OTP has been sent.');
+      successResponse(res, { resetToken: dummyToken }, 'If an account matches those details, an OTP has been sent.');
       return;
     }
 
-    // Generate cryptographically secure random 6-digit OTP
+    // Cryptographically secure OTP
     const otp = randomInt(100000, 1000000).toString();
-    const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Store bcrypt hash of OTP in database
     const salt = await bcrypt.genSalt(10);
     const hashedOtp = await bcrypt.hash(otp, salt);
 
@@ -272,25 +318,18 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
 
     console.log(`🔑 [MFA] Forgot-password OTP generated for user "${admin.username}"`);
 
-    // Send email via Nodemailer / Resend asynchronously
     sendOtpEmail(otp, admin.email, 'Your Password Reset OTP Code')
-      .then(() => {
-        console.log(`✉️ Forgot-password OTP email sent successfully to ${admin.email}`);
-      })
       .catch((emailError) => {
-        console.error('⚠️ Failed to send forgot-password OTP email:', emailError.message || emailError);
+        console.error('⚠️ [Email] Failed to dispatch forgot-password OTP email:', emailError.message || emailError);
       });
 
-    // Generate a temporary JWT token for reset verification
     const resetToken = jwt.sign(
       { id: admin.id, username: admin.username, purpose: 'reset' },
       ACCESS_SECRET,
       { expiresIn: '5m' }
     );
 
-    successResponse(res, {
-      resetToken,
-    }, 'If an account matches those details, an OTP has been sent.');
+    successResponse(res, { resetToken }, 'If an account matches those details, an OTP has been sent.');
   } catch (error) {
     console.error('Forgot password error:', error);
     errorResponse(res, 'Forgot password request failed', 500);
@@ -312,8 +351,7 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
 
     let decoded: any;
     try {
-      const ACCESS_SECRET = getAccessSecret();
-      decoded = jwt.verify(resetToken, ACCESS_SECRET);
+      decoded = jwt.verify(resetToken, getAccessSecret());
     } catch {
       errorResponse(res, 'Password reset session has expired. Please try again.', 401);
       return;
@@ -334,25 +372,21 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
     }
 
     const isExpired = !admin.otpExpiresAt || new Date() > admin.otpExpiresAt;
-    const isOtpValid = !isExpired && admin.otpCode ? await bcrypt.compare(String(otp).trim(), admin.otpCode) : false;
+    const isOtpValid = !isExpired && admin.otpCode
+      ? await bcrypt.compare(String(otp).trim(), admin.otpCode)
+      : false;
 
     if (!isOtpValid) {
       errorResponse(res, 'Invalid or expired OTP', 401);
       return;
     }
 
-    // Hash the new password with strong salt
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(newPassword, salt);
 
-    // Update password, clear OTP
     await prisma.adminUser.update({
       where: { id: admin.id },
-      data: {
-        passwordHash,
-        otpCode: null,
-        otpExpiresAt: null,
-      },
+      data: { passwordHash, otpCode: null, otpExpiresAt: null, refreshTokenHash: null },
     });
 
     successResponse(res, null, 'Password reset successful');
@@ -372,8 +406,7 @@ export async function verifyResetOtp(req: Request, res: Response): Promise<void>
 
     let decoded: any;
     try {
-      const ACCESS_SECRET = getAccessSecret();
-      decoded = jwt.verify(resetToken, ACCESS_SECRET);
+      decoded = jwt.verify(resetToken, getAccessSecret());
     } catch {
       errorResponse(res, 'Password reset session has expired. Please try again.', 401);
       return;
@@ -394,7 +427,9 @@ export async function verifyResetOtp(req: Request, res: Response): Promise<void>
     }
 
     const isExpired = !admin.otpExpiresAt || new Date() > admin.otpExpiresAt;
-    const isOtpValid = !isExpired && admin.otpCode ? await bcrypt.compare(String(otp).trim(), admin.otpCode) : false;
+    const isOtpValid = !isExpired && admin.otpCode
+      ? await bcrypt.compare(String(otp).trim(), admin.otpCode)
+      : false;
 
     if (!isOtpValid) {
       errorResponse(res, 'Invalid or expired OTP', 401);
@@ -413,9 +448,7 @@ export async function updateAccount(req: AuthRequest, res: Response): Promise<vo
     const { username, email, password } = req.body;
     const userId = req.user!.id;
 
-    const userExists = await prisma.adminUser.findUnique({
-      where: { id: userId },
-    });
+    const userExists = await prisma.adminUser.findUnique({ where: { id: userId } });
     if (!userExists) {
       errorResponse(res, 'User not found. Please log out and log in again.', 401);
       return;
@@ -427,23 +460,13 @@ export async function updateAccount(req: AuthRequest, res: Response): Promise<vo
     }
 
     if (username) {
-      const existingUser = await prisma.adminUser.findFirst({
-        where: { username, NOT: { id: userId } }
-      });
-      if (existingUser) {
-        errorResponse(res, 'Username is already taken', 400);
-        return;
-      }
+      const existingUser = await prisma.adminUser.findFirst({ where: { username, NOT: { id: userId } } });
+      if (existingUser) { errorResponse(res, 'Username is already taken', 400); return; }
     }
 
     if (email) {
-      const existingEmail = await prisma.adminUser.findFirst({
-        where: { email, NOT: { id: userId } }
-      });
-      if (existingEmail) {
-        errorResponse(res, 'Email is already in use', 400);
-        return;
-      }
+      const existingEmail = await prisma.adminUser.findFirst({ where: { email, NOT: { id: userId } } });
+      if (existingEmail) { errorResponse(res, 'Email is already in use', 400); return; }
     }
 
     const updateData: any = {};
@@ -456,6 +479,8 @@ export async function updateAccount(req: AuthRequest, res: Response): Promise<vo
       }
       const salt = await bcrypt.genSalt(12);
       updateData.passwordHash = await bcrypt.hash(password, salt);
+      // Revoke all existing sessions when password changes
+      updateData.refreshTokenHash = null;
     }
 
     const updatedUser = await prisma.adminUser.update({

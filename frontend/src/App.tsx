@@ -51,25 +51,50 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { isAuthenticated, logout } = useAuthStore();
-  const [isValidating, setIsValidating] = useState(isAuthenticated);
+  const { isAuthenticated, accessToken, setAccessToken, logout } = useAuthStore();
+  const [isValidating, setIsValidating] = useState(true);
 
   useEffect(() => {
-    const verifySession = async () => {
-      if (isAuthenticated) {
+    const bootstrapSession = async () => {
+      if (!isAuthenticated) {
+        // Not logged in — nothing to restore
+        setIsValidating(false);
+        return;
+      }
+
+      if (accessToken) {
+        // Access token is already in memory (same tab, no reload) — verify it's still valid
         try {
           await authApi.getMe();
         } catch (err: any) {
-          // Only log out if backend explicitly rejected auth (401)
           if (err?.response?.status === 401) {
             logout();
           }
         }
+        setIsValidating(false);
+        return;
       }
+
+      // Access token was lost (page reload, new tab) — silently restore it
+      // using the httpOnly refresh-token cookie that the backend manages.
+      try {
+        const { data } = await authApi.refresh();
+        if (data?.data?.accessToken) {
+          setAccessToken(data.data.accessToken, data.data.refreshToken ?? null);
+        } else {
+          logout();
+        }
+      } catch {
+        // Refresh token expired or revoked — force fresh login
+        logout();
+      }
+
       setIsValidating(false);
     };
-    verifySession();
-  }, [isAuthenticated, logout]);
+
+    bootstrapSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (isValidating) {
     return <LoadingSpinner fullscreen />;

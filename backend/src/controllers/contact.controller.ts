@@ -7,7 +7,7 @@ async function sendContactEmail(toEmail: string, mailOptions: any): Promise<void
   const emailFrom = getDefaultSenderEmail();
 
   if (resendApiKey) {
-    console.log(`📡 Sending Contact form email via Resend API to ${toEmail}...`);
+    console.log(`📡 [Email] Dispatching contact form via Resend...`);
     const response = await (globalThis as any).fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {

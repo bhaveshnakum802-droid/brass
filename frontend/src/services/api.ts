@@ -174,6 +174,8 @@ export const authApi = {
   verifyResetOtp: (data: { resetToken: string; otp: string }) => api.post('/auth/verify-reset-otp', data),
   resetPassword: (data: { resetToken: string; otp: string; newPassword: string }) => api.post('/auth/reset-password', data),
   updateAccount: (data: { username?: string; email?: string; password?: string }) => api.put('/auth/update-account', data),
+  // Calls the backend refresh endpoint using the httpOnly cookie — no manual token needed
+  refresh: () => api.post('/auth/refresh', {}),
   logout: () => api.post('/auth/logout'),
   getMe: () => api.get('/auth/me'),
 };

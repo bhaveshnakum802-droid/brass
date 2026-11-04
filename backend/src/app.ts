@@ -16,10 +16,30 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ── Security headers ────────────────────────────────────────
+const isProduction = process.env.NODE_ENV === 'production';
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: isProduction
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", 'data:', 'https:'],
+            connectSrc: [
+              "'self'",
+              'https://api.resend.com',
+              'https://formspree.io',
+            ],
+            fontSrc: ["'self'", 'data:'],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
+            upgradeInsecureRequests: [],
+          },
+        }
+      : false, // Disable CSP in development (Vite HMR uses unsafe-eval etc.)
+    hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true } : false,
   })
 );
 
@@ -30,12 +50,13 @@ app.use(
     origin: (origin, callback) => {
       const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
       const isLocalhost = origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      // Only allow chetan-brass.vercel.app and its preview deployments (not all *.vercel.app)
       const isVercel = origin && /^https?:\/\/(chetan-brass|chetan-brass-[a-zA-Z0-9-]+)\.vercel\.app$/.test(origin);
 
       if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin) || (isDevelopment && isLocalhost) || isVercel) {
         callback(null, true);
       } else {
-        console.warn(`[CORS Blocked] Origin: "${origin}". Allowed origins: [${allowedOrigins.join(', ')}]`);
+        console.warn(`[CORS Blocked] Origin: "${origin}"`);
         callback(new Error('Not allowed by CORS'));
       }
     },

@@ -8,7 +8,7 @@ async function sendInquiryEmail(toEmail: string, mailOptions: any): Promise<void
   const emailFrom = getDefaultSenderEmail();
 
   if (resendApiKey) {
-    console.log(`📡 Sending Inquiry email via Resend API to ${toEmail}...`);
+    console.log(`📡 [Email] Dispatching RFQ inquiry via Resend...`);
     const response = await (globalThis as any).fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {

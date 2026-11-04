@@ -12,19 +12,20 @@ datasource db {
 
 // ==================== ADMIN USERS ====================
 model AdminUser {
-  id           String    @id @default(uuid())
-  username     String    @unique
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  firstName    String?   @map("first_name")
-  lastName     String?   @map("last_name")
-  role         String    @default("admin")
-  isActive     Boolean   @default(true) @map("is_active")
-  lastLoginAt  DateTime? @map("last_login_at")
-  otpCode      String?   @map("otp_code")
-  otpExpiresAt DateTime? @map("otp_expires_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  username         String    @unique
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  firstName        String?   @map("first_name")
+  lastName         String?   @map("last_name")
+  role             String    @default("admin")
+  isActive         Boolean   @default(true) @map("is_active")
+  lastLoginAt      DateTime? @map("last_login_at")
+  otpCode          String?   @map("otp_code")
+  otpExpiresAt     DateTime? @map("otp_expires_at")
+  refreshTokenHash String?   @map("refresh_token_hash")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@map("admin_users")
 }
@@ -47,26 +48,26 @@ model Category {
 
 // ==================== PRODUCTS ====================
 model Product {
-  id                String          @id @default(uuid())
-  name              String
-  slug              String          @unique
-  sku               String?         @unique
-  categoryId        String          @map("category_id")
-  category          Category        @relation(fields: [categoryId], references: [id])
-  shortDesc         String?         @map("short_desc")
-  fullDesc          String?         @map("full_desc")
-  price             Float?
-  status            String          @default("DRAFT")
-  featured          Boolean         @default(false)
-  showNameOnHover   Boolean         @default(false) @map("show_name_on_hover")
-  stock             Int?
-  metaTitle         String?         @map("meta_title")
-  metaDesc          String?         @map("meta_desc")
-  createdAt         DateTime        @default(now()) @map("created_at")
-  updatedAt         DateTime        @updatedAt @map("updated_at")
-  images            ProductImage[]
-  features          ProductFeature[]
-  specs             ProductSpec[]
+  id              String          @id @default(uuid())
+  name            String
+  slug            String          @unique
+  sku             String?         @unique
+  categoryId      String          @map("category_id")
+  category        Category        @relation(fields: [categoryId], references: [id])
+  shortDesc       String?         @map("short_desc")
+  fullDesc        String?         @map("full_desc")
+  price           Float?
+  status          String          @default("DRAFT")
+  featured        Boolean         @default(false)
+  showNameOnHover Boolean         @default(false) @map("show_name_on_hover")
+  stock           Int?
+  metaTitle       String?         @map("meta_title")
+  metaDesc        String?         @map("meta_desc")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  images          ProductImage[]
+  features        ProductFeature[]
+  specs           ProductSpec[]
 
   @@index([categoryId])
   @@index([status])

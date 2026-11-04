@@ -17,12 +17,14 @@ async function main(): Promise<void> {
   }
   console.log('📁 Upload directories ready');
 
-  // Test database connection
+  // Test database connection and ensure schema updates
   try {
     await prisma.$connect();
     console.log('✅ Database connected');
+    // Ensure refresh_token_hash column exists in PostgreSQL without breaking existing data
+    await prisma.$executeRawUnsafe(`ALTER TABLE "admin_users" ADD COLUMN IF NOT EXISTS "refresh_token_hash" TEXT;`);
   } catch (error) {
-    console.error('❌ Database connection failed:', error);
+    console.error('❌ Database connection/migration check failed:', error);
     console.error('\nMake sure your database is accessible and DATABASE_URL in .env is correct.');
     process.exit(1);
   }
@@ -33,7 +35,7 @@ async function main(): Promise<void> {
     console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 API Base:    http://localhost:${PORT}/api`);
     console.log(`🖼  Uploads:     http://localhost:${PORT}/api/uploads`);
-    console.log(`\n📋 Admin Login: username=admin  password=admin123`);
+    console.log(`🔒 Application initialized securely`);
   });
 
   // Graceful shutdown
