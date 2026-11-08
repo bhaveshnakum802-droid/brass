@@ -226,7 +226,7 @@ export default function LoginPage() {
   // Action 5: Reset Password Submit
   const onResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       setAlert({
         type: 'error',
         title: 'Weak Password',
@@ -562,9 +562,9 @@ export default function LoginPage() {
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                         className="form-input pl-10 pr-10 border-gray-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all rounded-xl"
-                        placeholder="Min 6 characters"
+                        placeholder="Min 8 characters"
                         required
-                        minLength={6}
+                        minLength={8}
                       />
                       <button type="button" onClick={() => setShowNewPass((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-dark-900 transition-colors focus:outline-none">
                         {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -583,7 +583,7 @@ export default function LoginPage() {
                         className="form-input pl-10 pr-10 border-gray-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all rounded-xl"
                         placeholder="Re-enter password"
                         required
-                        minLength={6}
+                        minLength={8}
                       />
                       <button type="button" onClick={() => setShowConfirmPass((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-dark-900 transition-colors focus:outline-none">
                         {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -593,7 +593,7 @@ export default function LoginPage() {
 
                   <button
                     type="submit"
-                    disabled={isSubmittingReset || newPassword.length < 6 || newPassword !== confirmPassword}
+                    disabled={isSubmittingReset || newPassword.length < 8 || newPassword !== confirmPassword}
                     className="w-full btn-primary bg-gradient-to-r from-primary-DEFAULT to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white rounded-xl py-3 shadow-[0_4px_15px_rgba(26,110,168,0.25)] transition-all duration-300 font-bold active:scale-95 disabled:opacity-60"
                   >
                     {isSubmittingReset ? 'Resetting Password...' : 'Reset Password'}

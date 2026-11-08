@@ -14,11 +14,11 @@ const accountSchema = z.object({
   confirmPassword: z.string().optional().or(z.literal('')),
 }).refine((data) => {
   if (data.password && data.password.length > 0) {
-    return data.password.length >= 6;
+    return data.password.length >= 8;
   }
   return true;
 }, {
-  message: 'Password must be at least 6 characters',
+  message: 'Password must be at least 8 characters',
   path: ['password'],
 }).refine((data) => {
   return data.password === data.confirmPassword;

@@ -28,13 +28,13 @@ const verifyResetOtpSchema = z.object({
 const resetPasswordSchema = z.object({
   resetToken: z.string().min(1, 'resetToken is required'),
   otp: z.string().length(6, 'OTP must be 6 digits'),
-  newPassword: z.string().min(6, 'Password must be at least 6 characters'),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
 const updateAccountSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters').optional(),
   email: z.string().email('Invalid email address').optional(),
-  password: z.string().min(6, 'Password must be at least 6 characters').optional(),
+  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
 });
 
 router.post('/login', validateBody(loginSchema), login);
