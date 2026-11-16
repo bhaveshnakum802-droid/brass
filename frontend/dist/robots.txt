@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /owner/
+Disallow: /api/
+
+Sitemap: https://www.chetanbrassindustries.com/sitemap.xml
