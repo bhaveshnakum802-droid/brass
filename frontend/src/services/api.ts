@@ -179,4 +179,5 @@ export const authApi = {
   refresh: () => api.post('/auth/refresh', {}),
   logout: () => api.post('/auth/logout'),
   getMe: () => api.get('/auth/me'),
+  testEmail: () => api.post('/auth/test-email', {}),
 };

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, verifyOtp, resendOtp, logout, getMe, refreshToken, forgotPassword, resetPassword, verifyResetOtp, updateAccount } from '../controllers/auth.controller';
+import { login, verifyOtp, resendOtp, logout, getMe, refreshToken, forgotPassword, resetPassword, verifyResetOtp, updateAccount, testEmailDelivery } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validate.middleware';
 import { z } from 'zod';
@@ -51,5 +51,6 @@ router.put('/update-account', authenticate, validateBody(updateAccountSchema), u
 router.post('/logout', logout);
 router.post('/refresh', refreshToken);
 router.get('/me', authenticate, getMe);
+router.post('/test-email', authenticate, testEmailDelivery);
 
 export default router;

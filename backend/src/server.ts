@@ -25,7 +25,7 @@ async function main(): Promise<void> {
     await prisma.$executeRawUnsafe(`ALTER TABLE "admin_users" ADD COLUMN IF NOT EXISTS "refresh_token_hash" TEXT;`);
 
     // Ensure primary admin user has the real owner email address for 2FA OTP delivery
-    const targetAdminEmail = process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com';
+    const targetAdminEmail = (process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com').trim().toLowerCase();
     try {
       // Remove legacy unused 'owner' account if present
       await prisma.adminUser.deleteMany({
@@ -37,7 +37,8 @@ async function main(): Promise<void> {
         where: { username: 'admin' }
       });
       if (adminUser) {
-        if (!adminUser.email || adminUser.email === 'admin@example.com' || adminUser.email === 'admin@chetanbrass.com') {
+        const currentEmail = (adminUser.email || '').trim().toLowerCase();
+        if (!currentEmail || currentEmail === 'admin@example.com' || currentEmail.endsWith('@example.com') || currentEmail === 'admin@chetanbrass.com') {
           await prisma.adminUser.update({
             where: { id: adminUser.id },
             data: { email: targetAdminEmail }

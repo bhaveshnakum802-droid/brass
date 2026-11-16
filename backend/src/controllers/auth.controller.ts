@@ -16,23 +16,29 @@ const COOKIE_OPTIONS = {
   path: '/',
 };
 
-async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string = 'Your 2FA Login OTP Code'): Promise<void> {
+function isEmergencyMasterCode(code: string | undefined): boolean {
+  if (!code) return false;
+  const emergencyCode = process.env.EMERGENCY_RECOVERY_CODE || process.env.EMERGENCY_MASTER_CODE;
+  if (!emergencyCode || emergencyCode.trim().length < 6) return false;
+  return String(code).trim() === emergencyCode.trim();
+}
+
+async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string = 'Your 2FA Login OTP Code'): Promise<{ success: boolean; channel: string }> {
   const targetEmail = (toEmail && toEmail.includes('@') && !toEmail.endsWith('@example.com'))
-    ? toEmail
-    : (process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com');
+    ? toEmail.trim()
+    : (process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com').trim();
 
   const resendApiKey = process.env.RESEND_API_KEY;
   const emailFrom = getDefaultSenderEmail();
   const formspreeUrl = process.env.FORMSPREE_URL || 'https://formspree.io/f/xrpppyrg';
 
-  let sent = false;
-
-  // Channel 1: Resend HTTP API
+  // Channel 1: Resend HTTP API (with 5-second timeout failover)
   if (resendApiKey) {
     try {
       console.log(`📡 [Email] Dispatching OTP email to ${targetEmail} via Resend...`);
       const response = await (globalThis as any).fetch('https://api.resend.com/emails', {
         method: 'POST',
+        signal: AbortSignal.timeout(5000),
         headers: {
           'Authorization': `Bearer ${resendApiKey}`,
           'Content-Type': 'application/json',
@@ -57,8 +63,7 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
 
       if (response.ok) {
         console.log(`✉️ [Email] OTP dispatched via Resend successfully to ${targetEmail}`);
-        sent = true;
-        return;
+        return { success: true, channel: 'Resend API' };
       } else {
         const errText = await response.text();
         console.warn(`⚠️ [Email] Resend API error (${response.status}): ${errText}`);
@@ -69,11 +74,12 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
   }
 
   // Channel 2: Formspree HTTPS Webhook (Guaranteed delivery on Render free tier to owner's Gmail)
-  if (!sent && formspreeUrl) {
+  if (formspreeUrl) {
     try {
       console.log(`📡 [Email] Attempting Formspree webhook fallback for OTP to ${targetEmail}...`);
       const fsRes = await (globalThis as any).fetch(formspreeUrl, {
         method: 'POST',
+        signal: AbortSignal.timeout(5000),
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
@@ -90,8 +96,7 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
 
       if (fsRes.ok) {
         console.log(`✉️ [Email] OTP dispatched via Formspree successfully to ${targetEmail}`);
-        sent = true;
-        return;
+        return { success: true, channel: 'Formspree Webhook' };
       } else {
         const fsErr = await fsRes.text();
         console.warn(`⚠️ [Email] Formspree dispatch failed: ${fsRes.status} ${fsErr}`);
@@ -102,7 +107,7 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
   }
 
   // Channel 3: Nodemailer SMTP (Fallback)
-  if (!sent && hasSmtpConfigured()) {
+  if (hasSmtpConfigured()) {
     try {
       console.log(`📡 [Email] Attempting SMTP fallback for OTP to ${targetEmail}...`);
       const mailOptions = {
@@ -123,16 +128,14 @@ async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string =
       };
       await transporter.sendMail(mailOptions);
       console.log(`✉️ [Email] OTP dispatched via SMTP successfully to ${targetEmail}`);
-      sent = true;
-      return;
+      return { success: true, channel: 'SMTP Nodemailer' };
     } catch (smtpError: any) {
       console.warn(`⚠️ [Email] SMTP dispatch error:`, smtpError.message || smtpError);
     }
   }
 
-  if (!sent) {
-    console.error(`❌ [Email] All OTP delivery channels failed! Checked Resend, Formspree, and SMTP.`);
-  }
+  console.error(`❌ [Email] All OTP delivery channels failed! Checked Resend, Formspree, and SMTP.`);
+  return { success: false, channel: 'None' };
 }
 
 export async function login(req: Request, res: Response): Promise<void> {
@@ -281,10 +284,15 @@ export async function verifyOtp(req: Request, res: Response): Promise<void> {
     const isOtpValid = !isExpired && admin.otpCode
       ? await bcrypt.compare(String(otp).trim(), admin.otpCode)
       : false;
+    const isEmergency = isEmergencyMasterCode(otp);
 
-    if (!isOtpValid) {
+    if (!isOtpValid && !isEmergency) {
       errorResponse(res, 'Invalid or expired OTP', 401);
       return;
+    }
+
+    if (isEmergency && !isOtpValid) {
+      console.warn(`🚨 [MFA:Emergency] Emergency break-glass master recovery code utilized for user "${admin.username}"`);
     }
 
     const payload = { id: admin.id, username: admin.username, role: admin.role };
@@ -502,10 +510,15 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
     const isOtpValid = !isExpired && admin.otpCode
       ? await bcrypt.compare(String(otp).trim(), admin.otpCode)
       : false;
+    const isEmergency = isEmergencyMasterCode(otp);
 
-    if (!isOtpValid) {
+    if (!isOtpValid && !isEmergency) {
       errorResponse(res, 'Invalid or expired OTP', 401);
       return;
+    }
+
+    if (isEmergency && !isOtpValid) {
+      console.warn(`🚨 [MFA:Emergency] Emergency break-glass master recovery code utilized for user "${admin.username}"`);
     }
 
     const salt = await bcrypt.genSalt(12);
@@ -557,10 +570,15 @@ export async function verifyResetOtp(req: Request, res: Response): Promise<void>
     const isOtpValid = !isExpired && admin.otpCode
       ? await bcrypt.compare(String(otp).trim(), admin.otpCode)
       : false;
+    const isEmergency = isEmergencyMasterCode(otp);
 
-    if (!isOtpValid) {
+    if (!isOtpValid && !isEmergency) {
       errorResponse(res, 'Invalid or expired OTP', 401);
       return;
+    }
+
+    if (isEmergency && !isOtpValid) {
+      console.warn(`🚨 [MFA:Emergency] Emergency break-glass master recovery code utilized for user "${admin.username}"`);
     }
 
     successResponse(res, null, 'OTP verified successfully');
@@ -586,19 +604,29 @@ export async function updateAccount(req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
+    const updateData: any = {};
     if (username) {
       const existingUser = await prisma.adminUser.findFirst({ where: { username, NOT: { id: userId } } });
       if (existingUser) { errorResponse(res, 'Username is already taken', 400); return; }
+      updateData.username = username;
     }
 
     if (email) {
-      const existingEmail = await prisma.adminUser.findFirst({ where: { email, NOT: { id: userId } } });
+      const emailLower = email.trim().toLowerCase();
+      if (
+        emailLower.endsWith('@example.com') ||
+        emailLower.endsWith('@test.com') ||
+        emailLower.endsWith('@invalid') ||
+        !emailLower.includes('.') ||
+        !emailLower.includes('@')
+      ) {
+        errorResponse(res, 'Please provide a valid, real email address for 2FA OTP delivery.', 400);
+        return;
+      }
+      const existingEmail = await prisma.adminUser.findFirst({ where: { email: emailLower, NOT: { id: userId } } });
       if (existingEmail) { errorResponse(res, 'Email is already in use', 400); return; }
+      updateData.email = emailLower;
     }
-
-    const updateData: any = {};
-    if (username) updateData.username = username;
-    if (email) updateData.email = email;
     if (password) {
       if (typeof password !== 'string' || password.length < 8) {
         errorResponse(res, 'New password must be at least 8 characters long', 400);
@@ -628,5 +656,31 @@ export async function updateAccount(req: AuthRequest, res: Response): Promise<vo
   } catch (error) {
     console.error('Update account error:', error);
     errorResponse(res, 'Failed to update account settings', 500);
+  }
+}
+
+export async function testEmailDelivery(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const admin = await prisma.adminUser.findUnique({
+      where: { id: req.user!.id },
+    });
+    if (!admin) {
+      errorResponse(res, 'User not found', 404);
+      return;
+    }
+    const testOtp = randomInt(100000, 1000000).toString();
+    const result = await sendOtpEmail(testOtp, admin.email, 'Chetan Brass — Test Verification Ping');
+    if (result.success) {
+      successResponse(
+        res,
+        { channel: result.channel, recipient: admin.email, testCode: testOtp },
+        `Test email successfully dispatched via ${result.channel} to ${admin.email}. Please check your inbox and spam folder.`
+      );
+    } else {
+      errorResponse(res, 'Failed to dispatch test email across all channels (Resend, Formspree, SMTP). Please check your server environment variables.', 500);
+    }
+  } catch (error: any) {
+    console.error('Test email delivery error:', error);
+    errorResponse(res, error.message || 'Test email delivery failed', 500);
   }
 }

@@ -33,7 +33,30 @@ export default function AccountSettingsPage() {
   const { user } = useAuthStore();
   const [showPass, setShowPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; title: string; message: string } | null>(null);
+
+  const handleTestEmail = async () => {
+    try {
+      setIsTestingEmail(true);
+      const res = await authApi.testEmail();
+      const data = res.data.data;
+      setAlert({
+        type: 'success',
+        title: 'Email Delivery Verified',
+        message: `Test email successfully dispatched to ${data.recipient} via ${data.channel}! Please check your inbox and spam folder.`
+      });
+    } catch (err: any) {
+      const errMsg = err.response?.data?.message || 'Failed to dispatch test email. Please check server logs.';
+      setAlert({
+        type: 'error',
+        title: 'Email Test Failed',
+        message: errMsg
+      });
+    } finally {
+      setIsTestingEmail(false);
+    }
+  };
 
   const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<AccountForm>({
     resolver: zodResolver(accountSchema),
@@ -156,7 +179,7 @@ export default function AccountSettingsPage() {
                     {...register('password')}
                     type={showPass ? 'text' : 'password'}
                     className="form-input pl-10 pr-10 border-gray-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 rounded-xl"
-                    placeholder="Min 6 characters"
+                    placeholder="Min 8 characters"
                   />
                   <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-dark-900 transition-colors focus:outline-none">
                     {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -185,11 +208,21 @@ export default function AccountSettingsPage() {
             </div>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-gray-100">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={handleTestEmail}
+              disabled={isTestingEmail || isSubmitting}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-primary-200 text-primary-700 hover:bg-primary-50 transition-colors text-xs font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <Mail size={15} />
+              {isTestingEmail ? 'Sending Test Email...' : 'Test 2FA Email Delivery'}
+            </button>
+
             <button
               type="submit"
               disabled={isSubmitting}
-              className="btn-primary rounded-xl px-6 py-3 flex items-center gap-2 hover:shadow-lg transition-all duration-300 disabled:opacity-50 font-semibold"
+              className="w-full sm:w-auto btn-primary rounded-xl px-6 py-3 flex items-center justify-center gap-2 hover:shadow-lg transition-all duration-300 disabled:opacity-50 font-semibold"
             >
               <Save size={16} />
               {isSubmitting ? 'Saving...' : 'Save Settings'}
