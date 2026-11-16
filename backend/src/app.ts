@@ -50,10 +50,11 @@ app.use(
     origin: (origin, callback) => {
       const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV;
       const isLocalhost = origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-      // Only allow chetan-brass.vercel.app and its preview deployments (not all *.vercel.app)
+      // Allow custom domain (chetanbrassindustries.com), Vercel deployments, and localhost
+      const isCustomDomain = origin && /^https?:\/\/(www\.)?chetanbrassindustries\.com$/.test(origin);
       const isVercel = origin && /^https?:\/\/(chetan-brass|chetan-brass-[a-zA-Z0-9-]+)\.vercel\.app$/.test(origin);
 
-      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin) || (isDevelopment && isLocalhost) || isVercel) {
+      if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin) || (isDevelopment && isLocalhost) || isVercel || isCustomDomain) {
         callback(null, true);
       } else {
         console.warn(`[CORS Blocked] Origin: "${origin}"`);

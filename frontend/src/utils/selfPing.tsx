@@ -8,10 +8,10 @@ import { useEffect } from 'react';
  */
 const PING_INTERVAL = 9.5 * 60 * 1000; // 9.5 minutes
 
-// In production, must ping the Render backend directly (not relative /api/health which hits Vercel)
-const HEALTH_URL = import.meta.env.PROD
-  ? 'https://brass-project.onrender.com/api/health'
-  : (import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/health` : 'http://localhost:5000/api/health');
+// In production, pings the live backend health endpoint directly to prevent cold starts
+const HEALTH_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/health`
+  : (import.meta.env.PROD ? 'https://api.chetanbrassindustries.com/api/health' : 'http://localhost:5000/api/health');
 
 export default function SelfPing() {
   useEffect(() => {

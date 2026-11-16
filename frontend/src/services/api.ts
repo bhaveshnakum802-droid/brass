@@ -1,9 +1,11 @@
 import axios from 'axios';
 import { useAuthStore } from '@/store/auth.store';
 
-const BASE_URL = import.meta.env.PROD 
-  ? 'https://brass-project.onrender.com/api' 
-  : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
+const API_ORIGIN = import.meta.env.VITE_API_ORIGIN
+  || (import.meta.env.PROD ? 'https://api.chetanbrassindustries.com' : 'http://localhost:5000');
+
+const BASE_URL = import.meta.env.VITE_API_URL 
+  || `${API_ORIGIN}/api`;
 
 export const api = axios.create({
   baseURL: BASE_URL,
@@ -18,12 +20,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Helper to prefix relative upload paths with Render backend URL in production
+// Helper to prefix relative upload paths with backend origin in production
 function prefixUploadUrls(obj: any): any {
   if (!obj) return obj;
   if (typeof obj === 'string') {
     if (obj.startsWith('/api/uploads/')) {
-      return `https://brass-project.onrender.com${obj}`;
+      return `${API_ORIGIN}${obj}`;
     }
     return obj;
   }
