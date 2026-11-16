@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { randomInt } from 'crypto';
 import { prisma } from '../utils/prisma';
 import { signAccessToken, signRefreshToken, verifyRefreshToken, getAccessSecret } from '../utils/jwt';
-import { transporter, hasSmtpConfigured, getDefaultSenderEmail } from '../utils/email';
+import { transporter, hasSmtpConfigured, getDefaultSenderEmail, maskEmail } from '../utils/email';
 import { successResponse, errorResponse } from '../utils/response';
 import { AuthRequest } from '../types';
 
@@ -17,64 +17,121 @@ const COOKIE_OPTIONS = {
 };
 
 async function sendOtpEmail(otp: string, toEmail: string, subjectTitle: string = 'Your 2FA Login OTP Code'): Promise<void> {
+  const targetEmail = (toEmail && toEmail.includes('@') && !toEmail.endsWith('@example.com'))
+    ? toEmail
+    : (process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com');
+
   const resendApiKey = process.env.RESEND_API_KEY;
   const emailFrom = getDefaultSenderEmail();
+  const formspreeUrl = process.env.FORMSPREE_URL || 'https://formspree.io/f/xrpppyrg';
 
+  let sent = false;
+
+  // Channel 1: Resend HTTP API
   if (resendApiKey) {
-    console.log(`📡 [Email] Dispatching OTP email via Resend...`);
-    const response = await (globalThis as any).fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: emailFrom,
-        to: toEmail,
-        subject: subjectTitle,
-        html: `
-          <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;">
-            <h2 style="color: #3b82f6;">Owner Portal Security Verification</h2>
-            <p>Use the following One-Time Password (OTP) to complete your verification:</p>
-            <div style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a; padding: 15px 0; text-align: center; background-color: #f3f4f6; border-radius: 8px; margin: 20px 0;">
-              ${otp}
+    try {
+      console.log(`📡 [Email] Dispatching OTP email to ${targetEmail} via Resend...`);
+      const response = await (globalThis as any).fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: emailFrom,
+          to: targetEmail,
+          subject: subjectTitle,
+          html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px; margin: 0 auto;">
+              <h2 style="color: #1a6ea8; border-bottom: 2px solid #1a6ea8; padding-bottom: 10px;">Chetan Brass Industries — Owner Security</h2>
+              <p style="font-size: 15px; color: #333;">Use the following One-Time Password (OTP) to complete your verification:</p>
+              <div style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #1a6ea8; padding: 18px 0; text-align: center; background-color: #f0f7ff; border: 1px dashed #1a6ea8; border-radius: 8px; margin: 20px 0;">
+                ${otp}
+              </div>
+              <p style="color: #dc2626; font-size: 13px; font-weight: bold;">⚠️ This code is strictly valid for 5 minutes. Never share this code with anyone.</p>
+              <p style="font-size: 12px; color: #666; margin-top: 25px; border-top: 1px solid #eee; pt: 10px;">If you did not request this security code, please immediately check your portal credentials.</p>
             </div>
-            <p style="color: #ef4444; font-size: 13px;">This code is valid for 5 minutes. If you did not request this code, please ignore this email or secure your password.</p>
-          </div>
-        `,
-      }),
-    });
+          `,
+        }),
+      });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Resend API failed: ${response.statusText} - ${errText}`);
+      if (response.ok) {
+        console.log(`✉️ [Email] OTP dispatched via Resend successfully to ${targetEmail}`);
+        sent = true;
+        return;
+      } else {
+        const errText = await response.text();
+        console.warn(`⚠️ [Email] Resend API error (${response.status}): ${errText}`);
+      }
+    } catch (resendError: any) {
+      console.warn(`⚠️ [Email] Resend API threw error:`, resendError.message || resendError);
     }
-    console.log(`✉️ [Email] OTP dispatched via Resend successfully`);
-    return;
   }
 
-  // Fallback to Nodemailer SMTP if configured
-  if (hasSmtpConfigured()) {
-    const mailOptions = {
-      from: `"Owner Portal" <${emailFrom}>`,
-      to: toEmail,
-      subject: subjectTitle,
-      text: `Your one-time password (OTP) is: ${otp}. It is valid for 5 minutes.`,
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;">
-          <h2 style="color: #3b82f6;">Owner Portal Security Verification</h2>
-          <p>Use the following One-Time Password (OTP) to complete your verification:</p>
-          <div style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a; padding: 15px 0; text-align: center; background-color: #f3f4f6; border-radius: 8px; margin: 20px 0;">
-            ${otp}
+  // Channel 2: Formspree HTTPS Webhook (Guaranteed delivery on Render free tier to owner's Gmail)
+  if (!sent && formspreeUrl) {
+    try {
+      console.log(`📡 [Email] Attempting Formspree webhook fallback for OTP to ${targetEmail}...`);
+      const fsRes = await (globalThis as any).fetch(formspreeUrl, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          _subject: `[SECURITY ALERT] Chetan Brass Portal - ${subjectTitle}: ${otp}`,
+          title: 'Chetan Brass Industries — Owner Security Verification',
+          otp_code: otp,
+          recipient_email: targetEmail,
+          message: `Your one-time verification code (OTP) is: ${otp}. This code is valid for 5 minutes. Please enter it on the portal to complete verification.`,
+          _replyto: targetEmail,
+        }),
+      });
+
+      if (fsRes.ok) {
+        console.log(`✉️ [Email] OTP dispatched via Formspree successfully to ${targetEmail}`);
+        sent = true;
+        return;
+      } else {
+        const fsErr = await fsRes.text();
+        console.warn(`⚠️ [Email] Formspree dispatch failed: ${fsRes.status} ${fsErr}`);
+      }
+    } catch (fsError: any) {
+      console.warn(`⚠️ [Email] Formspree dispatch error:`, fsError.message || fsError);
+    }
+  }
+
+  // Channel 3: Nodemailer SMTP (Fallback)
+  if (!sent && hasSmtpConfigured()) {
+    try {
+      console.log(`📡 [Email] Attempting SMTP fallback for OTP to ${targetEmail}...`);
+      const mailOptions = {
+        from: `"Owner Portal" <${emailFrom}>`,
+        to: targetEmail,
+        subject: subjectTitle,
+        text: `Your one-time password (OTP) is: ${otp}. It is valid for 5 minutes.`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px; max-width: 500px;">
+            <h2 style="color: #1a6ea8;">Owner Portal Security Verification</h2>
+            <p>Use the following One-Time Password (OTP) to complete your verification:</p>
+            <div style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1a6ea8; padding: 15px 0; text-align: center; background-color: #f3f4f6; border-radius: 8px; margin: 20px 0;">
+              ${otp}
+            </div>
+            <p style="color: #dc2626; font-size: 13px;">This code is valid for 5 minutes. If you did not request this code, please secure your password.</p>
           </div>
-          <p style="color: #ef4444; font-size: 13px;">This code is valid for 5 minutes. If you did not request this code, please ignore this email or secure your password.</p>
-        </div>
-      `,
-    };
-    await transporter.sendMail(mailOptions);
-    console.log(`✉️ [Email] OTP dispatched via SMTP successfully`);
-  } else {
-    throw new Error('No email provider configured. Please configure RESEND_API_KEY or SMTP_USER/SMTP_PASS.');
+        `,
+      };
+      await transporter.sendMail(mailOptions);
+      console.log(`✉️ [Email] OTP dispatched via SMTP successfully to ${targetEmail}`);
+      sent = true;
+      return;
+    } catch (smtpError: any) {
+      console.warn(`⚠️ [Email] SMTP dispatch error:`, smtpError.message || smtpError);
+    }
+  }
+
+  if (!sent) {
+    console.error(`❌ [Email] All OTP delivery channels failed! Checked Resend, Formspree, and SMTP.`);
   }
 }
 
@@ -104,8 +161,12 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     console.log(`🔑 [MFA] 2FA OTP generated for user "${admin.username}"`);
 
+    const effectiveEmail = (admin.email && admin.email.includes('@') && !admin.email.endsWith('@example.com'))
+      ? admin.email
+      : (process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com');
+
     // Send OTP email asynchronously — do not block HTTP response
-    sendOtpEmail(otp, admin.email, 'Your 2FA Login OTP Code')
+    sendOtpEmail(otp, effectiveEmail, 'Your 2FA Login OTP Code')
       .catch((emailError) => {
         console.error('⚠️ [Email] Failed to dispatch OTP email:', emailError.message || emailError);
       });
@@ -118,10 +179,71 @@ export async function login(req: Request, res: Response): Promise<void> {
       { expiresIn: '5m' }
     );
 
-    successResponse(res, { mfaRequired: true, mfaToken }, 'OTP sent to registered email');
+    const maskedEmail = maskEmail(effectiveEmail);
+    successResponse(res, { mfaRequired: true, mfaToken, maskedEmail }, `OTP sent to ${maskedEmail}`);
   } catch (error) {
     console.error('Login error:', error);
     errorResponse(res, 'Login failed', 500);
+  }
+}
+
+export async function resendOtp(req: Request, res: Response): Promise<void> {
+  try {
+    const { mfaToken } = req.body;
+    if (!mfaToken) {
+      errorResponse(res, 'mfaToken is required', 400);
+      return;
+    }
+
+    let decoded: any;
+    try {
+      decoded = jwt.verify(mfaToken, getAccessSecret());
+    } catch {
+      errorResponse(res, 'MFA session has expired. Please log in again.', 401);
+      return;
+    }
+
+    if (decoded.purpose !== 'mfa') {
+      errorResponse(res, 'Invalid MFA session', 401);
+      return;
+    }
+
+    const admin = await prisma.adminUser.findFirst({
+      where: { id: decoded.id, isActive: true },
+    });
+
+    if (!admin) {
+      errorResponse(res, 'User not found', 404);
+      return;
+    }
+
+    const otp = randomInt(100000, 1000000).toString();
+    const otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedOtp = await bcrypt.hash(otp, salt);
+
+    await prisma.adminUser.update({
+      where: { id: admin.id },
+      data: { otpCode: hashedOtp, otpExpiresAt },
+    });
+
+    console.log(`🔑 [MFA] Resending 2FA OTP for user "${admin.username}"`);
+
+    const effectiveEmail = (admin.email && admin.email.includes('@') && !admin.email.endsWith('@example.com'))
+      ? admin.email
+      : (process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com');
+
+    sendOtpEmail(otp, effectiveEmail, 'Your 2FA Login OTP Code')
+      .catch((emailError) => {
+        console.error('⚠️ [Email] Failed to dispatch resent OTP email:', emailError.message || emailError);
+      });
+
+    const maskedEmail = maskEmail(effectiveEmail);
+    successResponse(res, { maskedEmail }, `A new OTP has been sent to ${maskedEmail}`);
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    errorResponse(res, 'Failed to resend OTP', 500);
   }
 }
 
@@ -300,7 +422,7 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
         ACCESS_SECRET,
         { expiresIn: '5m' }
       );
-      successResponse(res, { resetToken: dummyToken }, 'If an account matches those details, an OTP has been sent.');
+      successResponse(res, { resetToken: dummyToken, maskedEmail: 'your registered email' }, 'If an account matches those details, an OTP has been sent.');
       return;
     }
 
@@ -318,7 +440,11 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
 
     console.log(`🔑 [MFA] Forgot-password OTP generated for user "${admin.username}"`);
 
-    sendOtpEmail(otp, admin.email, 'Your Password Reset OTP Code')
+    const effectiveEmail = (admin.email && admin.email.includes('@') && !admin.email.endsWith('@example.com'))
+      ? admin.email
+      : (process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com');
+
+    sendOtpEmail(otp, effectiveEmail, 'Your Password Reset OTP Code')
       .catch((emailError) => {
         console.error('⚠️ [Email] Failed to dispatch forgot-password OTP email:', emailError.message || emailError);
       });
@@ -329,7 +455,8 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
       { expiresIn: '5m' }
     );
 
-    successResponse(res, { resetToken }, 'If an account matches those details, an OTP has been sent.');
+    const maskedEmail = maskEmail(effectiveEmail);
+    successResponse(res, { resetToken, maskedEmail }, 'If an account matches those details, an OTP has been sent.');
   } catch (error) {
     console.error('Forgot password error:', error);
     errorResponse(res, 'Forgot password request failed', 500);

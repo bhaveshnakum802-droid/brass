@@ -170,6 +170,7 @@ export const inquiryApi = {
 export const authApi = {
   login: (credentials: { username: string; password: string }) => api.post('/auth/login', credentials),
   verifyOtp: (data: { mfaToken: string; otp: string }) => api.post('/auth/verify-otp', data),
+  resendOtp: (data: { mfaToken: string }) => api.post('/auth/resend-otp', data),
   forgotPassword: (data: { username: string }) => api.post('/auth/forgot-password', data),
   verifyResetOtp: (data: { resetToken: string; otp: string }) => api.post('/auth/verify-reset-otp', data),
   resetPassword: (data: { resetToken: string; otp: string; newPassword: string }) => api.post('/auth/reset-password', data),

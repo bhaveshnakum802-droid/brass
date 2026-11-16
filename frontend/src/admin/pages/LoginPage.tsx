@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Factory, Eye, EyeOff, Lock, User, Key, ArrowLeft, CheckCircle2, XCircle, Info, LockKeyhole, Mail } from 'lucide-react';
+import { Factory, Eye, EyeOff, Lock, User, Key, ArrowLeft, CheckCircle2, XCircle, Info, LockKeyhole, Mail, RefreshCw } from 'lucide-react';
 import { authApi } from '@/services/api';
 import { useAuthStore } from '@/store/auth.store';
 import type { AdminUser, ApiResponse, AuthData } from '@/types';
@@ -28,6 +28,9 @@ export default function LoginPage() {
 
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(null);
+  const [maskedEmail, setMaskedEmail] = useState<string>('');
+  const [isResendingOtp, setIsResendingOtp] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   const [alert, setAlert] = useState<{ type: 'success' | 'error' | 'info'; title: string; message: string; onConfirm?: () => void } | null>(null);
 
@@ -38,6 +41,14 @@ export default function LoginPage() {
 
   const navigate = useNavigate();
   const { setAuth, isAuthenticated } = useAuthStore();
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   if (isAuthenticated) return <Navigate to="/owner/dashboard" replace />;
 
@@ -52,15 +63,18 @@ export default function LoginPage() {
       const resData = (res.data as ApiResponse<any>).data;
       
       if (resData.mfaRequired) {
+        const emailText = resData.maskedEmail || "the owner's registered email";
+        setMaskedEmail(resData.maskedEmail || '');
         setAlert({
           type: 'success',
           title: 'Credentials Verified',
-          message: 'Your credentials are correct. A 6-digit verification code has been sent to your registered email.',
+          message: `Your credentials are correct. A 6-digit verification code has been sent to ${emailText}.`,
           onConfirm: () => {
             setMfaToken(resData.mfaToken);
             setMode('login-otp');
             setOtp('');
             setOtpAttempts(0);
+            setResendCooldown(30);
           }
         });
       } else {
@@ -135,6 +149,32 @@ export default function LoginPage() {
     }
   };
 
+  // Action 2b: Resend OTP
+  const handleResendOtp = async () => {
+    if (!mfaToken || resendCooldown > 0 || isResendingOtp) return;
+    try {
+      setIsResendingOtp(true);
+      const res = await authApi.resendOtp({ mfaToken });
+      const resData = (res.data as ApiResponse<any>).data;
+      const emailText = resData?.maskedEmail || maskedEmail || "the owner's registered email";
+      setResendCooldown(45);
+      setAlert({
+        type: 'success',
+        title: 'New Code Dispatched',
+        message: `A fresh 6-digit verification code has been sent to ${emailText}. Please check your inbox and spam folder.`
+      });
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setAlert({
+        type: 'error',
+        title: 'Resend Failed',
+        message: axiosErr.response?.data?.message || 'Failed to resend code. Please try logging in again.'
+      });
+    } finally {
+      setIsResendingOtp(false);
+    }
+  };
+
   // Action 3: Forgot Password Request Submit
   const onForgotRequestSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,11 +190,13 @@ export default function LoginPage() {
       setIsSubmittingForgot(true);
       const res = await authApi.forgotPassword({ username: forgotUsername });
       const resData = (res.data as ApiResponse<any>).data;
+      const emailText = resData?.maskedEmail || "the owner's registered email";
+      setMaskedEmail(resData?.maskedEmail || '');
       
       setAlert({
         type: 'success',
         title: 'Reset Code Sent',
-        message: 'Account verified. A 6-digit password reset OTP has been sent to your registered email address.',
+        message: `Account verified. A 6-digit password reset OTP has been sent to ${emailText}.`,
         onConfirm: () => {
           setResetToken(resData.resetToken);
           setMode('forgot-otp');
@@ -390,8 +432,11 @@ export default function LoginPage() {
                     <Key size={30} className="text-white" />
                   </div>
                   <h1 className="font-heading font-extrabold text-2xl text-dark-900 tracking-tight">2FA Verification</h1>
-                  <p className="text-gray-400 text-sm mt-2 leading-relaxed">
-                    A 6-digit verification code has been sent to the owner's registered email.
+                  <p className="text-gray-500 text-sm mt-2 leading-relaxed">
+                    A 6-digit verification code has been sent to{' '}
+                    <span className="font-semibold text-primary-DEFAULT block sm:inline">
+                      {maskedEmail || "the owner's registered email"}
+                    </span>
                   </p>
                 </div>
 
@@ -409,6 +454,19 @@ export default function LoginPage() {
                       required
                       autoFocus
                     />
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-gray-500 px-1">
+                    <span>Didn't receive the email?</span>
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={resendCooldown > 0 || isResendingOtp}
+                      className="font-bold text-primary-DEFAULT hover:text-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5 focus:outline-none"
+                    >
+                      <RefreshCw size={13} className={isResendingOtp ? 'animate-spin' : ''} />
+                      {isResendingOtp ? 'Sending...' : resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
+                    </button>
                   </div>
 
                   <button
@@ -495,8 +553,11 @@ export default function LoginPage() {
                     <Mail size={30} className="text-white" />
                   </div>
                   <h1 className="font-heading font-extrabold text-2xl text-dark-900 tracking-tight">Reset Verification</h1>
-                  <p className="text-gray-400 text-sm mt-2 leading-relaxed">
-                    We sent a 6-digit reset verification code to the owner's registered email.
+                  <p className="text-gray-500 text-sm mt-2 leading-relaxed">
+                    We sent a 6-digit reset verification code to{' '}
+                    <span className="font-semibold text-primary-DEFAULT block sm:inline">
+                      {maskedEmail || "the owner's registered email"}
+                    </span>
                   </p>
                 </div>
 

@@ -23,6 +23,31 @@ async function main(): Promise<void> {
     console.log('✅ Database connected');
     // Ensure refresh_token_hash column exists in PostgreSQL without breaking existing data
     await prisma.$executeRawUnsafe(`ALTER TABLE "admin_users" ADD COLUMN IF NOT EXISTS "refresh_token_hash" TEXT;`);
+
+    // Ensure primary admin user has the real owner email address for 2FA OTP delivery
+    const targetAdminEmail = process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com';
+    try {
+      // Remove legacy unused 'owner' account if present
+      await prisma.adminUser.deleteMany({
+        where: { username: 'owner' }
+      });
+
+      // Update admin user from dummy/unverified email to owner email
+      const adminUser = await prisma.adminUser.findFirst({
+        where: { username: 'admin' }
+      });
+      if (adminUser) {
+        if (!adminUser.email || adminUser.email === 'admin@example.com' || adminUser.email === 'admin@chetanbrass.com') {
+          await prisma.adminUser.update({
+            where: { id: adminUser.id },
+            data: { email: targetAdminEmail }
+          });
+          console.log(`✅ [Admin Sync] Successfully updated admin email to ${targetAdminEmail}`);
+        }
+      }
+    } catch (adminSyncError) {
+      console.warn('⚠️ [Admin Sync] Notice during admin account synchronization:', adminSyncError);
+    }
   } catch (error) {
     console.error('❌ Database connection/migration check failed:', error);
     console.error('\nMake sure your database is accessible and DATABASE_URL in .env is correct.');

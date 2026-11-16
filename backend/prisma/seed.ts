@@ -14,30 +14,22 @@ async function main() {
   console.log('🌱 Seeding database...\n');
 
   // ── Admin User ──────────────────────────────────────────────
-  const hash = await bcrypt.hash('admin123', 12);
+  const defaultAdminEmail = process.env.ADMIN_EMAIL || 'bhaveshnakum802@gmail.com';
+  const defaultAdminPass = process.env.ADMIN_PASSWORD || 'admin123';
+  const hash = await bcrypt.hash(defaultAdminPass, 12);
   await prisma.adminUser.upsert({
     where: { username: 'admin' },
-    update: {},
-    create: { username: 'admin', email: 'admin@example.com', passwordHash: hash, firstName: 'Admin', lastName: 'User', role: 'admin' },
-  });
-  console.log('✅ Admin user: admin / admin123');
-
-  // ── Owner User ──────────────────────────────────────────────
-  const ownerPassword = process.env.OWNER_PASSWORD || 'owner123';
-  const ownerHash = await bcrypt.hash(ownerPassword, 12);
-  await prisma.adminUser.upsert({
-    where: { username: 'owner' },
-    update: {},
+    update: { email: defaultAdminEmail },
     create: {
-      username: 'owner',
-      email: 'solankimeetu26407@gmail.com',
-      passwordHash: ownerHash,
-      firstName: 'Business',
-      lastName: 'Owner',
-      role: 'owner'
+      username: 'admin',
+      email: defaultAdminEmail,
+      passwordHash: hash,
+      firstName: 'Admin',
+      lastName: 'User',
+      role: 'admin'
     },
   });
-  console.log(`✅ Owner user: owner / ${process.env.OWNER_PASSWORD ? '********' : 'owner123'}`);
+  console.log(`✅ Admin user: admin (${defaultAdminEmail})`);
 
   // ── Categories ────────────────────────────────────────────
   const cats = [

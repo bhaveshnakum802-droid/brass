@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, verifyOtp, logout, getMe, refreshToken, forgotPassword, resetPassword, verifyResetOtp, updateAccount } from '../controllers/auth.controller';
+import { login, verifyOtp, resendOtp, logout, getMe, refreshToken, forgotPassword, resetPassword, verifyResetOtp, updateAccount } from '../controllers/auth.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validate.middleware';
 import { z } from 'zod';
@@ -14,6 +14,10 @@ const loginSchema = z.object({
 const verifyOtpSchema = z.object({
   mfaToken: z.string().min(1, 'mfaToken is required'),
   otp: z.string().length(6, 'OTP must be 6 digits'),
+});
+
+const resendOtpSchema = z.object({
+  mfaToken: z.string().min(1, 'mfaToken is required'),
 });
 
 const forgotPasswordSchema = z.object({
@@ -39,6 +43,7 @@ const updateAccountSchema = z.object({
 
 router.post('/login', validateBody(loginSchema), login);
 router.post('/verify-otp', validateBody(verifyOtpSchema), verifyOtp);
+router.post('/resend-otp', validateBody(resendOtpSchema), resendOtp);
 router.post('/forgot-password', validateBody(forgotPasswordSchema), forgotPassword);
 router.post('/verify-reset-otp', validateBody(verifyResetOtpSchema), verifyResetOtp);
 router.post('/reset-password', validateBody(resetPasswordSchema), resetPassword);

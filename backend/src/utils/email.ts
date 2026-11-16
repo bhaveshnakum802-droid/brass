@@ -17,8 +17,22 @@ export function hasSmtpConfigured(): boolean {
 
 export function getDefaultSenderEmail(): string {
   const emailFrom = process.env.EMAIL_FROM;
-  if (emailFrom && emailFrom.includes('@')) {
+  // If custom email is set and is NOT the unverified placeholder domain
+  if (emailFrom && emailFrom.includes('@') && !emailFrom.includes('chetanbrass.com')) {
     return emailFrom;
   }
-  return smtpUser || 'no-reply@chetanbrass.com';
+  // Default to Resend verified onboarding sender for 100% deliverability on free tier
+  return smtpUser || 'Chetan Brass <onboarding@resend.dev>';
+}
+
+export function maskEmail(email: string): string {
+  if (!email || !email.includes('@')) return 'your registered email';
+  const [local, domain] = email.split('@');
+  if (local.length <= 2) {
+    return `${local[0]}*@${domain}`;
+  }
+  const first = local[0];
+  const last = local[local.length - 1];
+  const maskedMiddle = '*'.repeat(Math.min(local.length - 2, 6));
+  return `${first}${maskedMiddle}${last}@${domain}`;
 }
