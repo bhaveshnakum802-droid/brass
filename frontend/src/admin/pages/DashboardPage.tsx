@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { Package, FolderOpen, Star, Zap, Plus, ArrowRight, Clock, Users } from 'lucide-react';
+import { Package, FolderOpen, Star, Zap, Plus, ArrowRight, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { productsApi, categoriesApi, testimonialsApi, settingsApi } from '@/services/api';
+import { productsApi, categoriesApi, testimonialsApi } from '@/services/api';
 import { useAuthStore } from '@/store/auth.store';
 import type { PaginatedResponse, Product, Category, Testimonial } from '@/types';
 
@@ -58,18 +58,7 @@ export default function DashboardPage() {
     queryFn: () => testimonialsApi.getAll().then((r) => r.data as { data: Testimonial[] }),
   });
 
-  const { data: visitorData } = useQuery({
-    queryKey: ['visitor-stats'],
-    queryFn: () => settingsApi.getVisitStats().then((r) => r.data as { success: boolean; data: { count: number } }),
-  });
-
   const stats = [
-    {
-      icon: Users,
-      label: 'Website Visitors',
-      value: visitorData?.data?.count !== undefined ? Number(visitorData.data.count).toLocaleString() : '0',
-      color: 'border-emerald-200 text-emerald-600',
-    },
     { icon: Package, label: 'Total Products', value: productsData?.pagination?.total ?? '—', color: 'border-primary-200 text-primary-DEFAULT', link: '/owner/products' },
     { icon: Zap, label: 'Featured Products', value: featuredData?.pagination?.total ?? '—', color: 'border-amber-200 text-amber-600', link: '/owner/products' },
     { icon: FolderOpen, label: 'Categories', value: categoriesData?.data?.length ?? '—', color: 'border-blue-200 text-blue-600', link: '/owner/categories' },
@@ -84,7 +73,7 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-heading font-bold text-2xl text-dark-900">Welcome back, {user?.firstName || user?.username}! 👋</h2>
-          <p className="text-gray-500 text-sm mt-1">Here's an overview of your website traffic and content.</p>
+          <p className="text-gray-500 text-sm mt-1">Here's an overview of your website products and content.</p>
         </div>
         <Link to="/owner/products/new" className="btn-primary btn-md rounded-xl hidden sm:flex">
           <Plus size={16} /> Add Product
@@ -92,7 +81,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s) => <StatCard key={s.label} {...s} />)}
       </div>
 
