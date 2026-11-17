@@ -30,7 +30,7 @@ export default function AdminTopNav({ onToggleSidebar }: { onToggleSidebar: () =
       </div>
 
       <div className="flex items-center gap-3">
-        <a href="https://chetan-brass.vercel.app/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-DEFAULT transition-colors">
+        <a href="/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-primary-DEFAULT transition-colors">
           <ExternalLink size={14} /> View Website
         </a>
         <button className="relative p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
