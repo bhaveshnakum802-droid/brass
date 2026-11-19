@@ -51,6 +51,13 @@ function PublicLayout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  // Auto-redirect all vercel.app preview traffic to custom production domain
+  useEffect(() => {
+    if (window.location.hostname.endsWith('vercel.app')) {
+      window.location.replace(`https://www.chetanbrassindustries.com${window.location.pathname}${window.location.search}${window.location.hash}`);
+    }
+  }, []);
+
   const { isAuthenticated, accessToken, setAccessToken, logout } = useAuthStore();
   const [isValidating, setIsValidating] = useState(true);
 
