@@ -26,7 +26,7 @@ export default function HeroSection() {
 
   const siteName = settings?.site_name || 'Chetan Brass Industries';
   const heading = settings?.hero_heading || 'Engineering Excellence for Industrial India';
-  const subheading = settings?.hero_subheading || 'Premium industrial machinery, precision parts, and safety equipment trusted by leading manufacturers.';
+  const subheading = settings?.hero_subheading || 'Manufacturer and exporter of high precision brass components, custom turned parts, and industrial fittings in Jamnagar, Gujarat.';
   const cta1 = settings?.hero_cta_primary || 'Explore Products';
   const cta2 = settings?.hero_cta_secondary || 'Contact Us';
 

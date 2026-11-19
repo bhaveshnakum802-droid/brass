@@ -52,7 +52,7 @@ export default function Footer() {
                 />
               </div>
             </Link>
-            <p className="text-sm leading-relaxed mb-6">{settings?.site_description || 'Leading supplier of industrial machinery, precision parts, and safety equipment.'}</p>
+            <p className="text-sm leading-relaxed mb-6">{settings?.site_description || 'Leading manufacturer and exporter of precision brass components, custom turned parts, and industrial fittings in Jamnagar, Gujarat.'}</p>
             <div className="flex gap-3">
               {/* Facebook */}
               <a
